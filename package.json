@@ -12,10 +12,13 @@
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "express": "^4.21.2",
+    "html5-qrcode": "^2.3.8",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^7.8.7",
     "morgan": "^1.10.1",
+    "qrcode": "^1.5.4",
     "react-hot-toast": "^2.6.0",
+    "react-qr-scanner": "^1.0.0-alpha.11",
     "zod": "^3.25.76"
   },
   "devDependencies": {

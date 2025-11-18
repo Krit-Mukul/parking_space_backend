@@ -10,6 +10,16 @@ const { paymentSchema } = require('../validators/paymentValidator');
 exports.addVehicle = async (req, res, next) => {
   try {
     const parsed = vehicleSchema.parse(req.body);
+    
+    // Check if vehicle number already exists in the system
+    const existingVehicle = await Vehicle.findOne({ number: parsed.number });
+    if (existingVehicle) {
+      return res.status(409).json({ 
+        error: 'Vehicle already registered',
+        message: 'This vehicle number is already registered in the system' 
+      });
+    }
+    
     const vehicle = await Vehicle.create({ ...parsed, user: req.user._id });
     res.json({ vehicle });
   } catch (err) {
@@ -22,6 +32,37 @@ exports.listVehicles = async (req, res, next) => {
   try {
     const vehicles = await Vehicle.find({ user: req.user._id });
     res.json({ vehicles });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Delete a vehicle
+exports.deleteVehicle = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    
+    // Check if vehicle exists and belongs to the user
+    const vehicle = await Vehicle.findOne({ _id: id, user: req.user._id });
+    if (!vehicle) {
+      return res.status(404).json({ error: 'Vehicle not found' });
+    }
+
+    // Check if there are any active reservations for this vehicle
+    const activeReservations = await Reservation.findOne({
+      vehicle: id,
+      status: 'Active'
+    });
+
+    if (activeReservations) {
+      return res.status(400).json({ 
+        error: 'Cannot delete vehicle with active reservations. Please cancel reservations first.' 
+      });
+    }
+
+    // Delete the vehicle
+    await Vehicle.findByIdAndDelete(id);
+    res.json({ message: 'Vehicle deleted successfully' });
   } catch (err) {
     next(err);
   }
@@ -46,6 +87,41 @@ exports.createReservation = async (req, res, next) => {
     const startAt = new Date(parsed.startAt);
     const duration = parsed.duration || 1;
     const endAt = new Date(startAt.getTime() + duration * 60 * 60 * 1000);
+
+    // Check if the vehicle already has a reservation for the same time period
+    const vehicleConflict = await Reservation.findOne({
+      vehicle: parsed.vehicleId,
+      status: 'Active',
+      $or: [
+        // New reservation starts during existing vehicle reservation
+        { startAt: { $lte: startAt }, endAt: { $gte: startAt } },
+        // New reservation ends during existing vehicle reservation
+        { startAt: { $lte: endAt }, endAt: { $gte: endAt } },
+        // New reservation completely encompasses existing vehicle reservation
+        { startAt: { $gte: startAt }, endAt: { $lte: endAt } }
+      ]
+    }).populate('slot');
+
+    if (vehicleConflict) {
+      const conflictStart = new Date(vehicleConflict.startAt).toLocaleString('en-IN', { 
+        dateStyle: 'short', 
+        timeStyle: 'short' 
+      });
+      const conflictEnd = new Date(vehicleConflict.endAt).toLocaleString('en-IN', { 
+        dateStyle: 'short', 
+        timeStyle: 'short' 
+      });
+      
+      return res.status(409).json({ 
+        error: 'Vehicle already has a booking during this time',
+        message: `This vehicle already has a reservation at slot ${vehicleConflict.slot?.slotNumber || 'N/A'} from ${conflictStart} to ${conflictEnd}. A vehicle cannot have multiple bookings for overlapping time periods.`,
+        conflictingReservation: {
+          slotNumber: vehicleConflict.slot?.slotNumber,
+          startAt: vehicleConflict.startAt,
+          endAt: vehicleConflict.endAt
+        }
+      });
+    }
 
     // Check if the slot is available for the requested time period
     const conflictingReservation = await Reservation.findOne({
@@ -148,57 +224,49 @@ exports.makePayment = async (req, res, next) => {
 // List available parking slots
 exports.listAvailableSlots = async (req, res, next) => {
   try {
+    // Get the requested time period from query parameters
+    const { startAt, duration } = req.query;
+    
     const slots = await ParkingSlot.find();
     
-    // Update slot statuses based on current time and active reservations
+    // If no time period specified, check current availability
     const now = new Date();
-    const activeReservations = await Reservation.find({
+    let requestedStartTime = startAt ? new Date(startAt) : now;
+    let requestedEndTime = duration 
+      ? new Date(requestedStartTime.getTime() + parseInt(duration) * 60 * 60 * 1000)
+      : new Date(requestedStartTime.getTime() + 60 * 60 * 1000); // Default 1 hour
+
+    // Find all active reservations that conflict with the requested time period
+    const conflictingReservations = await Reservation.find({
       status: 'Active',
-      startAt: { $lte: now },
-      endAt: { $gte: now }
+      $or: [
+        // Reservation starts during requested period
+        { startAt: { $lte: requestedStartTime }, endAt: { $gte: requestedStartTime } },
+        // Reservation ends during requested period
+        { startAt: { $lte: requestedEndTime }, endAt: { $gte: requestedEndTime } },
+        // Reservation completely encompasses requested period
+        { startAt: { $gte: requestedStartTime }, endAt: { $lte: requestedEndTime } }
+      ]
     });
 
-    // Create a map of occupied slot IDs
-    const occupiedSlotIds = new Set(
-      activeReservations.map(r => r.slot?.toString()).filter(Boolean)
+    // Create a map of unavailable slot IDs for the requested time period
+    const unavailableSlotIds = new Set(
+      conflictingReservations.map(r => r.slot?.toString()).filter(Boolean)
     );
 
-    // Update each slot's status
-    for (const slot of slots) {
+    // Mark slots based on requested time period availability
+    const slotsWithAvailability = slots.map(slot => {
       const slotId = slot._id.toString();
-      const hasActiveReservation = occupiedSlotIds.has(slotId);
+      const isUnavailable = unavailableSlotIds.has(slotId);
       
-      // Check for upcoming reservations (Reserved status)
-      const upcomingReservation = await Reservation.findOne({
-        slot: slot._id,
-        status: 'Active',
-        startAt: { $gt: now }
-      });
+      return {
+        ...slot.toObject(),
+        // Show as Available or Reserved based on the requested time period
+        status: isUnavailable ? 'Reserved' : 'Available'
+      };
+    });
 
-      if (hasActiveReservation) {
-        // Slot is currently being used
-        if (slot.status !== 'Occupied') {
-          slot.status = 'Occupied';
-          await slot.save();
-        }
-      } else if (upcomingReservation) {
-        // Slot has a future reservation
-        if (slot.status !== 'Reserved') {
-          slot.status = 'Reserved';
-          await slot.save();
-        }
-      } else {
-        // Slot is available
-        if (slot.status !== 'Available') {
-          slot.status = 'Available';
-          await slot.save();
-        }
-      }
-    }
-
-    // Fetch updated slots
-    const updatedSlots = await ParkingSlot.find();
-    res.json({ slots: updatedSlots });
+    res.json({ slots: slotsWithAvailability });
   } catch (err) {
     next(err);
   }

@@ -7,6 +7,7 @@ router.use(authMiddleware, permit(['driver']));
 
 router.post('/vehicles', driver.addVehicle);
 router.get('/vehicles', driver.listVehicles);
+router.delete('/vehicles/:id', driver.deleteVehicle);
 router.get('/slots', driver.listAvailableSlots);
 router.post('/reserve', driver.createReservation);
 router.get('/reservations', driver.listReservations);

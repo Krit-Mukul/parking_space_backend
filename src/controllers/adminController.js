@@ -61,6 +61,15 @@ exports.validateTicket = async (req, res, next) => {
   try {
     const { id } = req.params;
     
+    // Validate ObjectId format before querying
+    if (!id.match(/^[0-9a-fA-F]{24}$/)) {
+      console.error('Invalid ObjectId format:', id);
+      return res.status(400).json({ 
+        error: 'Invalid reservation ID format',
+        details: 'The provided ID is not a valid MongoDB ObjectId'
+      });
+    }
+    
     const reservation = await Reservation.findById(id)
       .populate('vehicle')
       .populate('slot')
