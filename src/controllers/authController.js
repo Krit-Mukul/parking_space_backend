@@ -6,11 +6,13 @@ const { registerSchema, loginSchema } = require('../validators/authValidator');
 exports.register = async (req, res, next) => {
   try {
     const parsed = registerSchema.parse(req.body);
-    const existing = await User.findOne({ email: parsed.email });
+    // Convert email to lowercase for case-insensitive comparison
+    const emailLower = parsed.email.toLowerCase();
+    const existing = await User.findOne({ email: { $regex: new RegExp(`^${emailLower}$`, 'i') } });
     if (existing) return res.status(400).json({ error: 'Email already in use' });
 
     const hash = await bcrypt.hash(parsed.password, 10);
-    const user = await User.create({ ...parsed, passwordHash: hash });
+    const user = await User.create({ ...parsed, email: emailLower, passwordHash: hash });
     res.json({ message: 'User registered', id: user._id });
   } catch (err) {
     next(err);
@@ -20,7 +22,9 @@ exports.register = async (req, res, next) => {
 exports.login = async (req, res, next) => {
   try {
     const parsed = loginSchema.parse(req.body);
-    const user = await User.findOne({ email: parsed.email });
+    // Convert email to lowercase for case-insensitive comparison
+    const emailLower = parsed.email.toLowerCase();
+    const user = await User.findOne({ email: { $regex: new RegExp(`^${emailLower}$`, 'i') } });
     if (!user) return res.status(400).json({ error: 'Invalid credentials' });
 
     const valid = await bcrypt.compare(parsed.password, user.passwordHash);

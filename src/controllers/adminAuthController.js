@@ -8,7 +8,9 @@ exports.registerAdmin = async (req, res, next) => {
   try {
     const parsed = registerSchema.parse(req.body);
 
-    const existing = await User.findOne({ email: parsed.email });
+    // Convert email to lowercase for case-insensitive comparison
+    const emailLower = parsed.email.toLowerCase();
+    const existing = await User.findOne({ email: { $regex: new RegExp(`^${emailLower}$`, 'i') } });
     if (existing) {
       return res.status(400).json({ error: 'Admin with this email already exists' });
     }
@@ -17,7 +19,7 @@ exports.registerAdmin = async (req, res, next) => {
 
     const admin = await User.create({
       name: parsed.name,
-      email: parsed.email,
+      email: emailLower,
       passwordHash,
       role: 'admin', // ✅ force admin role
     });
@@ -37,7 +39,9 @@ exports.loginAdmin = async (req, res, next) => {
   try {
     const parsed = loginSchema.parse(req.body);
 
-    const admin = await User.findOne({ email: parsed.email, role: 'admin' });
+    // Convert email to lowercase for case-insensitive comparison
+    const emailLower = parsed.email.toLowerCase();
+    const admin = await User.findOne({ email: { $regex: new RegExp(`^${emailLower}$`, 'i') }, role: 'admin' });
     if (!admin) {
       return res.status(400).json({ error: 'Admin not found or invalid credentials' });
     }
