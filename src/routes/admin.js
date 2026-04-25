@@ -9,6 +9,7 @@ router.get('/slots', admin.listSlots);
 router.post('/slots', admin.createSlot);
 router.put('/slots/:id', admin.updateSlot);
 router.get('/report', admin.generateReport);
+router.get('/ai-insights', admin.getAIInsights);
 router.get('/validate-ticket/:id', admin.validateTicket);
 router.get('/payments', admin.listPayments);
 router.get('/reservations', admin.listReservations);

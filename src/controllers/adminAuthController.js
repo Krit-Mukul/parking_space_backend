@@ -3,12 +3,12 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { registerSchema, loginSchema } = require('../validators/authValidator');
 
-// ✅ Admin Signup
+
 exports.registerAdmin = async (req, res, next) => {
   try {
     const parsed = registerSchema.parse(req.body);
 
-    // Convert email to lowercase for case-insensitive comparison
+   
     const emailLower = parsed.email.toLowerCase();
     const existing = await User.findOne({ email: { $regex: new RegExp(`^${emailLower}$`, 'i') } });
     if (existing) {
@@ -21,7 +21,7 @@ exports.registerAdmin = async (req, res, next) => {
       name: parsed.name,
       email: emailLower,
       passwordHash,
-      role: 'admin', // ✅ force admin role
+      role: 'admin', 
     });
 
     res.status(201).json({
@@ -34,7 +34,7 @@ exports.registerAdmin = async (req, res, next) => {
   }
 };
 
-// ✅ Admin Login
+
 exports.loginAdmin = async (req, res, next) => {
   try {
     const parsed = loginSchema.parse(req.body);
